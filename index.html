@@ -3,250 +3,213 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Snake 3D - HTML & Three.js</title>
+  <title>Novela Visual Web</title>
   <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+    }
+
     body {
       margin: 0;
-      overflow: hidden;
-      background-color: #050505;
-      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    }
-
-    #ui {
-      position: absolute;
-      top: 20px;
-      left: 20px;
+      background-color: #121212;
       color: #ffffff;
-      text-shadow: 0 0 10px rgba(0,255,255,0.7);
-      pointer-events: none;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
     }
 
-    h1 {
-      margin: 0 0 5px 0;
-      font-size: 1.8rem;
-      letter-spacing: 2px;
+    /* Pantalla principal del juego */
+    #game-container {
+      position: relative;
+      width: 960px;
+      height: 540px;
+      background-color: #2a2a3a;
+      border: 3px solid #ffffff;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 0 20px rgba(0,0,0,0.8);
+      background-size: cover;
+      background-position: center;
     }
 
-    #score-container {
-      font-size: 1.3rem;
-      font-weight: bold;
-    }
-
-    #controls-info {
+    /* Caja de Diálogo */
+    #dialogue-box {
       position: absolute;
       bottom: 20px;
       left: 50%;
       transform: translateX(-50%);
-      color: #888;
-      font-size: 0.9rem;
-      background: rgba(0,0,0,0.6);
-      padding: 8px 16px;
-      border-radius: 20px;
-      pointer-events: none;
+      width: 90%;
+      height: 130px;
+      background: rgba(0, 0, 0, 0.85);
+      border: 2px solid #6c5ce7;
+      border-radius: 10px;
+      padding: 15px 20px;
+      cursor: pointer;
+    }
+
+    #character-name {
+      font-weight: bold;
+      font-size: 1.2rem;
+      color: #a29bfe;
+      margin-bottom: 8px;
+    }
+
+    #dialogue-text {
+      font-size: 1rem;
+      line-height: 1.4;
+      color: #dfe6e9;
+    }
+
+    /* Contenedor de Opciones */
+    #choices-container {
+      position: absolute;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 60%;
+      z-index: 10;
+    }
+
+    .choice-btn {
+      background: #6c5ce7;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      font-size: 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .choice-btn:hover {
+      background: #a29bfe;
+      transform: scale(1.02);
     }
   </style>
-  <!-- Cargamos la librería Three.js desde una CDN -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
-  <div id="ui">
-    <h1>SNAKE 3D</h1>
-    <div id="score-container">Puntos: <span id="score">0</span></div>
+  <div id="game-container">
+    <div id="choices-container"></div>
+    <div id="dialogue-box">
+      <div id="character-name">Cargando...</div>
+      <div id="dialogue-text">Haz clic para iniciar.</div>
+    </div>
   </div>
 
-  <div id="controls-info">Usa las teclas Flecha Arriba / Abajo / Izquierda / Derecha para dirigir la serpiente</div>
-
   <script>
-    // --- CONFIGURACIÓN DE LA ESCENA 3D ---
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0a12);
-
-    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.shadowMap.enabled = true;
-    document.body.appendChild(renderer.domElement);
-
-    // Luces
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-    scene.add(ambientLight);
-
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(10, 25, 15);
-    dirLight.castShadow = true;
-    scene.add(dirLight);
-
-    // --- PARÁMETROS DEL JUEGO ---
-    const gridSize = 20; // Campo de juego de 20x20
-    const stepSize = 1;
-
-    // Tablero / Plataforma de juego 3D
-    const boardGeo = new THREE.BoxGeometry(gridSize, 0.5, gridSize);
-    const boardMat = new THREE.MeshStandardMaterial({ color: 0x1e1e2f, roughness: 0.8 });
-    const board = new THREE.Mesh(boardGeo, boardMat);
-    board.position.set(0, -0.25, 0);
-    board.receiveShadow = true;
-    scene.add(board);
-
-    // Rejilla visual
-    const gridHelper = new THREE.GridHelper(gridSize, gridSize, 0x00ffff, 0x333355);
-    gridHelper.position.y = 0.01;
-    scene.add(gridHelper);
-
-    // Posicionamiento de la cámara
-    camera.position.set(0, 18, 15);
-    camera.lookAt(0, 0, 0);
-
-    // --- LÓGICA DEL JUEGO ---
-    let snake = [{ x: 0, z: 0 }];
-    let snakeMeshes = [];
-    let dirX = 1;
-    let dirZ = 0;
-    let food = { x: 5, z: 5 };
-    let foodMesh;
-    let score = 0;
-    let gameOver = false;
-    let lastStepTime = 0;
-    const stepInterval = 150; // Velocidad del juego (ms por movimiento)
-
-    // Geometrías y Materiales reutilizables
-    const cubeGeo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
-    const headMat = new THREE.MeshStandardMaterial({ color: 0x00ff88, roughness: 0.3, metalness: 0.2 });
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x00aa55, roughness: 0.5 });
-    const foodMat = new THREE.MeshStandardMaterial({ color: 0xff3366, emissive: 0xaa0033, roughness: 0.2 });
-
-    // Crear representación 3D inicial de la serpiente
-    function initSnake() {
-      const mesh = new THREE.Mesh(cubeGeo, headMat);
-      mesh.position.set(0, 0.5, 0);
-      mesh.castShadow = true;
-      scene.add(mesh);
-      snakeMeshes.push(mesh);
-    }
-
-    // Crear manzana/comida 3D
-    const foodGeo = new THREE.SphereGeometry(0.45, 16, 16);
-    foodMesh = new THREE.Mesh(foodGeo, foodMat);
-    foodMesh.position.set(food.x, 0.5, food.z);
-    foodMesh.castShadow = true;
-    scene.add(foodMesh);
-
-    function spawnFood() {
-      const half = gridSize / 2;
-      let validPosition = false;
-
-      while (!validPosition) {
-        food.x = Math.floor(Math.random() * gridSize) - half + 0.5;
-        food.z = Math.floor(Math.random() * gridSize) - half + 0.5;
-
-        validPosition = !snake.some(segment => segment.x === food.x && segment.z === food.z);
-      }
-
-      foodMesh.position.set(food.x, 0.5, food.z);
-    }
-
-    // Controles por teclado
-    let nextDirX = dirX;
-    let nextDirZ = dirZ;
-
-    window.addEventListener('keydown', (e) => {
-      switch (e.key) {
-        case 'ArrowUp':
-          if (dirZ === 0) { nextDirX = 0; nextDirZ = -stepSize; }
-          break;
-        case 'ArrowDown':
-          if (dirZ === 0) { nextDirX = 0; nextDirZ = stepSize; }
-          break;
-        case 'ArrowLeft':
-          if (dirX === 0) { nextDirX = -stepSize; nextDirZ = 0; }
-          break;
-        case 'ArrowRight':
-          if (dirX === 0) { nextDirX = stepSize; nextDirZ = 0; }
-          break;
-      }
-    });
-
-    // Bucle de actualización lógica
-    function updateGame() {
-      dirX = nextDirX;
-      dirZ = nextDirZ;
-
-      const head = { x: snake[0].x + dirX, z: snake[0].z + dirZ };
-
-      // Colisión con los bordes del escenario
-      const limit = gridSize / 2;
-      if (head.x > limit || head.x < -limit || head.z > limit || head.z < -limit) {
-        endGame();
-        return;
-      }
-
-      // Colisión consigo misma
-      for (let i = 0; i < snake.length; i++) {
-        if (snake[i].x === head.x && snake[i].z === head.z) {
-          endGame();
-          return;
+    // --- GUION / ESTRUCTURA DE LA HISTORIA ---
+    const story = {
+      inicio: [
+        {
+          speaker: "Narrador",
+          text: "Te despiertas en una habitación desconocida. La luz del sol entra suavemente por la ventana.",
+          bg: "#2c3e50"
+        },
+        {
+          speaker: "Misterioso Desconocido",
+          text: "¡Al fin despiertas! Pensé que habías dormido por días.",
+          bg: "#34495e"
+        },
+        {
+          speaker: "Misterioso Desconocido",
+          text: "¿Recuerdas cómo llegaste aquí?",
+          bg: "#34495e",
+          choices: [
+            { text: "Decir la verdad: No recuerdo nada.", nextScene: "ruta_verdad" },
+            { text: "Mentir: Sí, lo recuedo perfectamente.", nextScene: "ruta_mentira" }
+          ]
         }
-      }
+      ],
+      ruta_verdad: [
+        {
+          speaker: "Misterioso Desconocido",
+          text: "Entiendo... parece que la amnesia hizo su trabajo. No te preocupes, estás a salvo aquí.",
+          bg: "#16a085"
+        },
+        {
+          speaker: "Narrador",
+          text: "FIN DEL DEMO (Ruta Sincera)."
+        }
+      ],
+      ruta_mentira: [
+        {
+          speaker: "Misterioso Desconocido",
+          text: "¿Ah sí? Mientes muy mal... pero me agrada tu entusiasmo.",
+          bg: "#c0392b"
+        },
+        {
+          speaker: "Narrador",
+          text: "FIN DEL DEMO (Ruta Desconfiada)."
+        }
+      ]
+    };
 
-      snake.unshift(head);
+    // --- VARIABLES DE ESTADO ---
+    let currentScene = "inicio";
+    let currentStep = 0;
 
-      // Comprobar si come la fruta
-      if (Math.abs(head.x - food.x) < 0.1 && Math.abs(head.z - food.z) < 0.1) {
-        score += 10;
-        document.getElementById('score').innerText = score;
-        spawnFood();
+    // --- ELEMENTOS DEL DOM ---
+    const gameContainer = document.getElementById("game-container");
+    const nameEl = document.getElementById("character-name");
+    const textEl = document.getElementById("dialogue-text");
+    const choicesEl = document.getElementById("choices-container");
+    const dialogueBox = document.getElementById("dialogue-box");
 
-        // Agregar nuevo segmento visual
-        const newMesh = new THREE.Mesh(cubeGeo, bodyMat);
-        newMesh.castShadow = true;
-        scene.add(newMesh);
-        snakeMeshes.push(newMesh);
-      } else {
-        snake.pop();
-      }
+    // --- RENDERIZAR ESCENA Y DIÁLOGO ---
+    function renderStep() {
+      choicesEl.innerHTML = ""; // Limpiar opciones anteriores
+      const step = story[currentScene][currentStep];
 
-      // Actualizar posiciones de los cubos 3D
-      for (let i = 0; i < snake.length; i++) {
-        snakeMeshes[i].position.set(snake[i].x, 0.5, snake[i].z);
+      nameEl.textContent = step.speaker;
+      textEl.textContent = step.text;
+      if (step.bg) gameContainer.style.backgroundColor = step.bg;
+
+      // Si el paso tiene opciones, se muestran los botones
+      if (step.choices) {
+        step.choices.forEach(choice => {
+          const btn = document.createElement("button");
+          btn.className = "choice-btn";
+          btn.textContent = choice.text;
+          btn.onclick = (e) => {
+            e.stopPropagation(); // Evitar avanzar por hacer clic en el botón
+            changeScene(choice.nextScene);
+          };
+          choicesEl.appendChild(btn);
+        });
       }
     }
 
-    function endGame() {
-      gameOver = true;
-      alert("¡Juego Terminado! Tu puntaje final fue: " + score);
-      location.reload();
+    function advance() {
+      const sceneSteps = story[currentScene];
+      const step = sceneSteps[currentStep];
+
+      // Si hay opciones activas, no avanzamos por clic normal
+      if (step.choices && step.choices.length > 0) return;
+
+      if (currentStep < sceneSteps.length - 1) {
+        currentStep++;
+        renderStep();
+      }
     }
 
-    // Adaptar cámara si cambia el tamaño de la pantalla
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-
-    // --- BUCLE PRINCIPAL DE RENDERIZADO (60 FPS) ---
-    initSnake();
-    spawnFood();
-
-    function animate(currentTime) {
-      requestAnimationFrame(animate);
-
-      // Controlar la velocidad del movimiento por intervalos
-      if (!gameOver && currentTime - lastStepTime > stepInterval) {
-        updateGame();
-        lastStepTime = currentTime;
-      }
-
-      // Animación sutil de rotación a la manzana 3D
-      if (foodMesh) {
-        foodMesh.rotation.y += 0.03;
-      }
-
-      renderer.render(scene, camera);
+    function changeScene(newScene) {
+      currentScene = newScene;
+      currentStep = 0;
+      renderStep();
     }
 
-    requestAnimationFrame(animate);
+    // Evento para avanzar diálogo con clic en la caja de texto
+    dialogueBox.addEventListener("click", advance);
+
+    // Iniciar juego
+    renderStep();
   </script>
 </body>
 </html>
