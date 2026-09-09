@@ -3,204 +3,250 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Juego de la Serpiente - Snake</title>
+  <title>Snake 3D - HTML & Three.js</title>
   <style>
     body {
-      background-color: #1a1a1a;
-      color: #ffffff;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
       margin: 0;
+      overflow: hidden;
+      background-color: #050505;
+      font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    #ui {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: #ffffff;
+      text-shadow: 0 0 10px rgba(0,255,255,0.7);
+      pointer-events: none;
     }
 
     h1 {
-      margin-bottom: 10px;
+      margin: 0 0 5px 0;
+      font-size: 1.8rem;
+      letter-spacing: 2px;
     }
 
-    #score-board {
-      font-size: 1.2rem;
-      margin-bottom: 15px;
+    #score-container {
+      font-size: 1.3rem;
+      font-weight: bold;
     }
 
-    canvas {
-      border: 4px solid #4CAF50;
-      background-color: #000000;
-      box-shadow: 0px 0px 20px rgba(76, 175, 80, 0.4);
-    }
-
-    .controls-hint {
-      margin-top: 15px;
+    #controls-info {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #888;
       font-size: 0.9rem;
-      color: #aaa;
+      background: rgba(0,0,0,0.6);
+      padding: 8px 16px;
+      border-radius: 20px;
+      pointer-events: none;
     }
   </style>
+  <!-- Cargamos la librería Three.js desde una CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
-  <h1>Snake Game</h1>
-  <div id="score-board">Puntaje: <span id="score">0</span></div>
-  <canvas id="gameCanvas" width="400" height="400"></canvas>
-  <p class="controls-hint">Usa las flechas del teclado para moverte.</p>
+  <div id="ui">
+    <h1>SNAKE 3D</h1>
+    <div id="score-container">Puntos: <span id="score">0</span></div>
+  </div>
+
+  <div id="controls-info">Usa las teclas Flecha Arriba / Abajo / Izquierda / Derecha para dirigir la serpiente</div>
 
   <script>
-    const canvas = document.getElementById("gameCanvas");
-    const ctx = canvas.getContext("2d");
-    const scoreElement = document.getElementById("score");
+    // --- CONFIGURACIÓN DE LA ESCENA 3D ---
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a12);
 
-    // Tamaño de cada celda de la cuadrícula
-    const gridSize = 20;
-    const tileCount = canvas.width / gridSize;
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    document.body.appendChild(renderer.domElement);
 
-    // Estado del juego
+    // Luces
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(10, 25, 15);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
+
+    // --- PARÁMETROS DEL JUEGO ---
+    const gridSize = 20; // Campo de juego de 20x20
+    const stepSize = 1;
+
+    // Tablero / Plataforma de juego 3D
+    const boardGeo = new THREE.BoxGeometry(gridSize, 0.5, gridSize);
+    const boardMat = new THREE.MeshStandardMaterial({ color: 0x1e1e2f, roughness: 0.8 });
+    const board = new THREE.Mesh(boardGeo, boardMat);
+    board.position.set(0, -0.25, 0);
+    board.receiveShadow = true;
+    scene.add(board);
+
+    // Rejilla visual
+    const gridHelper = new THREE.GridHelper(gridSize, gridSize, 0x00ffff, 0x333355);
+    gridHelper.position.y = 0.01;
+    scene.add(gridHelper);
+
+    // Posicionamiento de la cámara
+    camera.position.set(0, 18, 15);
+    camera.lookAt(0, 0, 0);
+
+    // --- LÓGICA DEL JUEGO ---
+    let snake = [{ x: 0, z: 0 }];
+    let snakeMeshes = [];
+    let dirX = 1;
+    let dirZ = 0;
+    let food = { x: 5, z: 5 };
+    let foodMesh;
     let score = 0;
-    let dx = gridSize; // Velocidad X inicial (movimiento a la derecha)
-    let dy = 0;        // Velocidad Y inicial
+    let gameOver = false;
+    let lastStepTime = 0;
+    const stepInterval = 150; // Velocidad del juego (ms por movimiento)
 
-    // Posición inicial de la serpiente (cabeza y cuerpo)
-    let snake = [
-      { x: 160, y: 200 },
-      { x: 140, y: 200 },
-      { x: 120, y: 200 }
-    ];
+    // Geometrías y Materiales reutilizables
+    const cubeGeo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+    const headMat = new THREE.MeshStandardMaterial({ color: 0x00ff88, roughness: 0.3, metalness: 0.2 });
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x00aa55, roughness: 0.5 });
+    const foodMat = new THREE.MeshStandardMaterial({ color: 0xff3366, emissive: 0xaa0033, roughness: 0.2 });
 
-    // Posición inicial de la comida
-    let food = { x: 300, y: 200 };
+    // Crear representación 3D inicial de la serpiente
+    function initSnake() {
+      const mesh = new THREE.Mesh(cubeGeo, headMat);
+      mesh.position.set(0, 0.5, 0);
+      mesh.castShadow = true;
+      scene.add(mesh);
+      snakeMeshes.push(mesh);
+    }
 
-    // Para evitar cambios rápidos de dirección en el mismo fotograma
-    let changingDirection = false;
+    // Crear manzana/comida 3D
+    const foodGeo = new THREE.SphereGeometry(0.45, 16, 16);
+    foodMesh = new THREE.Mesh(foodGeo, foodMat);
+    foodMesh.position.set(food.x, 0.5, food.z);
+    foodMesh.castShadow = true;
+    scene.add(foodMesh);
 
-    // Escuchar eventos de teclado
-    document.addEventListener("keydown", changeDirection);
+    function spawnFood() {
+      const half = gridSize / 2;
+      let validPosition = false;
 
-    // Bucle principal del juego
-    function main() {
-      if (hasGameEnded()) {
-        alert("¡Juego Terminado! Tu puntaje fue: " + score);
-        document.location.reload(); // Reiniciar el juego
+      while (!validPosition) {
+        food.x = Math.floor(Math.random() * gridSize) - half + 0.5;
+        food.z = Math.floor(Math.random() * gridSize) - half + 0.5;
+
+        validPosition = !snake.some(segment => segment.x === food.x && segment.z === food.z);
+      }
+
+      foodMesh.position.set(food.x, 0.5, food.z);
+    }
+
+    // Controles por teclado
+    let nextDirX = dirX;
+    let nextDirZ = dirZ;
+
+    window.addEventListener('keydown', (e) => {
+      switch (e.key) {
+        case 'ArrowUp':
+          if (dirZ === 0) { nextDirX = 0; nextDirZ = -stepSize; }
+          break;
+        case 'ArrowDown':
+          if (dirZ === 0) { nextDirX = 0; nextDirZ = stepSize; }
+          break;
+        case 'ArrowLeft':
+          if (dirX === 0) { nextDirX = -stepSize; nextDirZ = 0; }
+          break;
+        case 'ArrowRight':
+          if (dirX === 0) { nextDirX = stepSize; nextDirZ = 0; }
+          break;
+      }
+    });
+
+    // Bucle de actualización lógica
+    function updateGame() {
+      dirX = nextDirX;
+      dirZ = nextDirZ;
+
+      const head = { x: snake[0].x + dirX, z: snake[0].z + dirZ };
+
+      // Colisión con los bordes del escenario
+      const limit = gridSize / 2;
+      if (head.x > limit || head.x < -limit || head.z > limit || head.z < -limit) {
+        endGame();
         return;
       }
 
-      changingDirection = false;
-      setTimeout(function onTick() {
-        clearCanvas();
-        drawFood();
-        moveSnake();
-        drawSnake();
-        main(); // Repetir el bucle
-      }, 100); // Velocidad del juego (100 ms por cuadro)
-    }
+      // Colisión consigo misma
+      for (let i = 0; i < snake.length; i++) {
+        if (snake[i].x === head.x && snake[i].z === head.z) {
+          endGame();
+          return;
+        }
+      }
 
-    // Dibujar el fondo del canvas
-    function clearCanvas() {
-      ctx.fillStyle = "#000000";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
-    // Dibujar la serpiente
-    function drawSnake() {
-      snake.forEach((part, index) => {
-        // La cabeza tiene un color ligeramente distinto
-        ctx.fillStyle = index === 0 ? "#4CAF50" : "#81C784";
-        ctx.strokeStyle = "#000000";
-        ctx.fillRect(part.x, part.y, gridSize, gridSize);
-        ctx.strokeRect(part.x, part.y, gridSize, gridSize);
-      });
-    }
-
-    // Mover la serpiente
-    function moveSnake() {
-      // Crear la nueva cabeza basada en la velocidad
-      const head = { x: snake[0].x + dx, y: snake[0].y + dy };
       snake.unshift(head);
 
-      // Comprobar si comió la fruta
-      const hasEatenFood = snake[0].x === food.x && snake[0].y === food.y;
-      if (hasEatenFood) {
+      // Comprobar si come la fruta
+      if (Math.abs(head.x - food.x) < 0.1 && Math.abs(head.z - food.z) < 0.1) {
         score += 10;
-        scoreElement.textContent = score;
-        generateFood();
+        document.getElementById('score').innerText = score;
+        spawnFood();
+
+        // Agregar nuevo segmento visual
+        const newMesh = new THREE.Mesh(cubeGeo, bodyMat);
+        newMesh.castShadow = true;
+        scene.add(newMesh);
+        snakeMeshes.push(newMesh);
       } else {
-        // Si no comió, eliminamos la cola para mantener el tamaño
         snake.pop();
       }
-    }
 
-    // Cambiar la dirección con las teclas de flechas
-    function changeDirection(event) {
-      const LEFT_KEY = 37;
-      const RIGHT_KEY = 39;
-      const UP_KEY = 38;
-      const DOWN_KEY = 40;
-
-      if (changingDirection) return;
-
-      const keyPressed = event.keyCode;
-      const goingUp = dy === -gridSize;
-      const goingDown = dy === gridSize;
-      const goingRight = dx === gridSize;
-      const goingLeft = dx === -gridSize;
-
-      if (keyPressed === LEFT_KEY && !goingRight) {
-        dx = -gridSize;
-        dy = 0;
-        changingDirection = true;
-      }
-      if (keyPressed === UP_KEY && !goingDown) {
-        dx = 0;
-        dy = -gridSize;
-        changingDirection = true;
-      }
-      if (keyPressed === RIGHT_KEY && !goingLeft) {
-        dx = gridSize;
-        dy = 0;
-        changingDirection = true;
-      }
-      if (keyPressed === DOWN_KEY && !goingUp) {
-        dx = 0;
-        dy = gridSize;
-        changingDirection = true;
+      // Actualizar posiciones de los cubos 3D
+      for (let i = 0; i < snake.length; i++) {
+        snakeMeshes[i].position.set(snake[i].x, 0.5, snake[i].z);
       }
     }
 
-    // Generar posición aleatoria para la comida
-    function generateFood() {
-      food.x = Math.floor(Math.random() * tileCount) * gridSize;
-      food.y = Math.floor(Math.random() * tileCount) * gridSize;
-
-      // Asegurar que la comida no aparezca encima de la serpiente
-      snake.forEach(function hasSnakeEatenFood(part) {
-        const hasEaten = part.x === food.x && part.y === food.y;
-        if (hasEaten) generateFood();
-      });
+    function endGame() {
+      gameOver = true;
+      alert("¡Juego Terminado! Tu puntaje final fue: " + score);
+      location.reload();
     }
 
-    // Dibujar la comida
-    function drawFood() {
-      ctx.fillStyle = "#FF5252";
-      ctx.fillRect(food.x, food.y, gridSize, gridSize);
-    }
+    // Adaptar cámara si cambia el tamaño de la pantalla
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
 
-    // Comprobar colisiones con los bordes o consigo misma
-    function hasGameEnded() {
-      for (let i = 4; i < snake.length; i++) {
-        if (snake[i].x === snake[0].x && snake[i].y === snake[0].y) return true;
+    // --- BUCLE PRINCIPAL DE RENDERIZADO (60 FPS) ---
+    initSnake();
+    spawnFood();
+
+    function animate(currentTime) {
+      requestAnimationFrame(animate);
+
+      // Controlar la velocidad del movimiento por intervalos
+      if (!gameOver && currentTime - lastStepTime > stepInterval) {
+        updateGame();
+        lastStepTime = currentTime;
       }
 
-      const hitLeftWall = snake[0].x < 0;
-      const hitRightWall = snake[0].x >= canvas.width;
-      const hitToptWall = snake[0].y < 0;
-      const hitBottomWall = snake[0].y >= canvas.height;
+      // Animación sutil de rotación a la manzana 3D
+      if (foodMesh) {
+        foodMesh.rotation.y += 0.03;
+      }
 
-      return hitLeftWall || hitRightWall || hitToptWall || hitBottomWall;
+      renderer.render(scene, camera);
     }
 
-    // Iniciar el juego
-    generateFood();
-    main();
+    requestAnimationFrame(animate);
   </script>
 </body>
 </html>
